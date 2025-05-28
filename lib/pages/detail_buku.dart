@@ -1,13 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart'; // tambahkan ini!
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:perpustakaan_magang/controller/pinjam.dart';
-import 'package:perpustakaan_magang/database/api.dart';
 import 'package:perpustakaan_magang/model/buku.dart';
 import 'package:perpustakaan_magang/model/peminjaman.dart';
 
-class BookDetailPage extends StatelessWidget {
+class BookDetailPage extends StatefulWidget {
   final Buku buku;
 
   const BookDetailPage({super.key, required this.buku});
+
+  @override
+  State<BookDetailPage> createState() => _BookDetailPageState();
+}
+
+class _BookDetailPageState extends State<BookDetailPage> {
+  late Buku buku;
+  bool isPinjamLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    buku = widget.buku; // supaya bisa diubah local state
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +41,7 @@ class BookDetailPage extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: Image.network(
-                  '${Api.ipServer}${buku.cover}',
+                  buku.cover,
                   height: 200,
                   width: 150,
                   fit: BoxFit.cover,
@@ -81,15 +96,19 @@ class BookDetailPage extends StatelessWidget {
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.book),
-                label: const Text("Pinjam Buku"),
-                onPressed: buku.tersedia
+                label: isPinjamLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text("Pinjam Buku"),
+                onPressed: buku.tersedia && !isPinjamLoading
                     ? () {
-                        _handlePinjam();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text("Buku berhasil dipinjam")),
-                        );
-                        // Navigator.pop(context); // atau setState di parent
+                        _handlePinjam(context);
                       }
                     : null,
                 style: ElevatedButton.styleFrom(
@@ -104,17 +123,82 @@ class BookDetailPage extends StatelessWidget {
     );
   }
 
-  void _handlePinjam() async {
-    final result = await pinjamBuku(
-      idUser: '1',
-      idBuku: '2',
-    );
+  Future<void> _handlePinjam(BuildContext context) async {
+    try {
+      setState(() {
+        isPinjamLoading = true;
+      });
 
-    if (result['success']) {
-      Peminjaman peminjaman = result['data'];
-      print('Peminjaman berhasil: ${peminjaman.id_peminjaman}');
-    } else {
-      print('Gagal: ${result['message']}');
+      final prefs = await SharedPreferences.getInstance();
+      final idUser = prefs.getString('user_id');
+
+      if (idUser == null) {
+        Get.snackbar("Gagal", "User tidak ditemukan. Silakan login.",
+            backgroundColor: Colors.red, colorText: Colors.white);
+        setState(() {
+          isPinjamLoading = false;
+        });
+        return;
+      }
+
+      final idBuku = buku.id_buku.toString();
+      final result = await pinjamBuku(idUser: idUser, idBuku: idBuku);
+
+      setState(() {
+        isPinjamLoading = false;
+      });
+
+      if (result['success']) {
+        Peminjaman peminjaman = result['data'];
+
+        // Auto set tanggalKembali 7 hari jika null
+        if (peminjaman.tanggalKembali == null) {
+          final tanggalKembali =
+              peminjaman.tanggalPinjam.add(const Duration(days: 7));
+          peminjaman = Peminjaman(
+            id_peminjaman: peminjaman.id_peminjaman,
+            id_user: peminjaman.id_user,
+            id_buku: peminjaman.id_buku,
+            tanggalPinjam: peminjaman.tanggalPinjam,
+            tanggalKembali: tanggalKembali,
+            status: peminjaman.status,
+            buku: peminjaman.buku,
+          );
+        }
+
+        print('Peminjaman berhasil: ${peminjaman.id_peminjaman}');
+        print('Tanggal Pinjam: ${peminjaman.tanggalPinjam}');
+        print('Tanggal Kembali: ${peminjaman.tanggalKembali}');
+
+        // Update status buku jadi tidak tersedia
+        setState(() {
+          buku = Buku(
+            id_buku: buku.id_buku,
+            judul: buku.judul,
+            penulis: buku.penulis,
+            deskripsi: buku.deskripsi,
+            kategori: buku.kategori,
+            cover: buku.cover,
+            tersedia: false, // update status
+            tanggalMasuk: buku.tanggalMasuk,
+            totalDipinjam: buku.totalDipinjam,
+          );
+        });
+
+        Get.snackbar("Berhasil", "Buku berhasil dipinjam!",
+            backgroundColor: Colors.green, colorText: Colors.white);
+        Navigator.pop(context, true);
+      } else {
+        Get.snackbar("Gagal", result['message'] ?? "Gagal meminjam buku",
+            backgroundColor: Colors.red, colorText: Colors.white);
+      }
+    } catch (e) {
+      print('Error: $e');
+      setState(() {
+        isPinjamLoading = false;
+      });
+      Get.snackbar("Error", "Terjadi kesalahan.",
+          backgroundColor: Colors.red, colorText: Colors.white);
     }
   }
 }

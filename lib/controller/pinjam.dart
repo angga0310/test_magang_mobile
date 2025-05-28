@@ -8,7 +8,7 @@ Future<Map<String, dynamic>> pinjamBuku({
   required String idUser,
   required String idBuku,
 }) async {
-  final url = Uri.parse('${Api.ipServer}/api/pinjam');
+  final url = Uri.parse('${Api.urlPinjam}');
 
   try {
     final response = await http.post(
@@ -20,14 +20,21 @@ Future<Map<String, dynamic>> pinjamBuku({
       body: json.encode({
         'id_user': idUser,
         'id_buku': idBuku,
+        'tanggal_pinjam': DateTime.now().toIso8601String(),
+        'tanggal_kembali':
+            DateTime.now().add(Duration(days: 7)).toIso8601String(),
       }),
     );
+    print('Status code: ${response.statusCode}');
+    print('Response body: ${response.body}');
 
     if (response.statusCode == 201) {
       // Sukses - parsing ke model Peminjaman
       final data = json.decode(response.body);
       final peminjamanData = data['data'];
       final peminjaman = Peminjaman.fromJson(peminjamanData);
+      print('Data: $data');
+      print('Data["data"]: ${data['data']}');
 
       return {
         'success': true,
